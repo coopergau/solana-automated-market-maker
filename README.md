@@ -14,3 +14,6 @@ Users can swap tokens using liquidity pools. The swap prices are determined by t
 4. mint pool token
 5. swap tokens
     - pay a fee to the liquidity pool - 0.3%
+
+# To do
+Add the add liquidity function - make it create the pool token accounts if they havent been, so they get auto created on the first fund

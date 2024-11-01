@@ -44,10 +44,10 @@ describe("amm", () => {
 
     const initAccounts = {
       pool: poolPda,
-      user: payer.publicKey,
       tokenAMint: tokenAMintAccount,
       tokenBMint: tokenBMintAccount,
       token_program: TOKEN_PROGRAM_ID,
+      user: payer.publicKey,
       system_program: ammId,
     };
 
