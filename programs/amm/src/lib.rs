@@ -11,7 +11,6 @@ pub mod amm {
         let pool = &mut ctx.accounts.pool;
         pool.token_a_mint = ctx.accounts.token_a_mint.key();
         pool.token_b_mint = ctx.accounts.token_b_mint.key();
-        
         msg!("Pool Initialized");
         Ok(())
     }
@@ -70,7 +69,7 @@ pub struct InitializePoolReserves<'info> {
     pub token_b_reserves: Account<'info, TokenAccount>,
 
     #[account(mut)]
-    pub pool: Account<'info, Pool>,
+    pub pool: Box<Account<'info, Pool>>,
     pub token_a_mint: Box<Account<'info, Mint>>,
     pub token_b_mint: Box<Account<'info, Mint>>,
     pub token_program: Program<'info, Token>,
@@ -78,7 +77,6 @@ pub struct InitializePoolReserves<'info> {
     pub user: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
-
 
 #[account]
 #[derive(InitSpace)]
