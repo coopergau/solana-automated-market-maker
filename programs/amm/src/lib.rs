@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Token, Mint, TokenAccount};
+use anchor_spl::token::{self, Token, Mint, TokenAccount, Transfer };
 
 declare_id!("4aYmUZwssmfkaN6igxi4Sgy3toi3D1dNGwJdwtGCWcjk");
 
@@ -23,7 +23,36 @@ pub mod amm {
         Ok(())
     }
 
-    //pub fn add_liquidity(ctx: Context<AddLiquidity>) -> Result<()> {}
+    pub fn add_liquidity(ctx: Context<AddLiquidity>, amount_a: u64, amount_b: u64) -> Result<()> {
+        let from_a = &mut ctx.accounts.user_token_a;
+        let from_b = &mut ctx.accounts.user_token_b;
+        let to_a = &mut ctx.accounts.token_a_reserves;
+        let to_b = &mut ctx.accounts.token_b_reserves;
+        let authority = &mut ctx.accounts.user;
+
+        let cpi_accounts_a = Transfer {
+            from: from_a.to_account_info().clone(),
+            to: to_a.to_account_info().clone(),
+            authority: authority.to_account_info().clone(),
+        };
+
+        let cpi_accounts_b = Transfer {
+            from: from_b.to_account_info().clone(),
+            to: to_b.to_account_info().clone(),
+            authority: authority.to_account_info().clone(),
+        };
+
+        let cpi_program = ctx.accounts.token_program.to_account_info();
+
+        token::transfer(
+            CpiContext::new(cpi_program.clone(), cpi_accounts_a),
+            amount_a)?;
+
+        token::transfer(
+            CpiContext::new(cpi_program.clone(), cpi_accounts_b),
+            amount_b)?;
+        Ok(())
+    }
 
 }
 
@@ -75,6 +104,25 @@ pub struct InitializePoolReserves<'info> {
     pub token_program: Program<'info, Token>,
     #[account(mut)]
     pub user: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct AddLiquidity<'info> {
+    pub pool: Account<'info, Pool>,
+    pub token_a_mint: Box<Account<'info, Mint>>,
+    pub token_b_mint: Box<Account<'info, Mint>>,
+    #[account(mut)]
+    pub token_a_reserves: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub token_b_reserves: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub user_token_a: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub user_token_b: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 

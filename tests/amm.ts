@@ -100,4 +100,6 @@ describe("amm", () => {
     }
   });
 
+  // use this for getting addresses for the add liq function const poolAccount = await program.account.pool.fetch(poolPublicKey);
+
 });
