@@ -18,6 +18,8 @@ Users can swap tokens using liquidity pools. The swap prices are determined by t
 # To do
 
 Add the add liquidity function
- - users add both kinds of liquidity according to the current ratio - done - function takes individual amounts is inputs
- - if there no tokens the raio is 1:1
+ - users add both kinds of liquidity according to the current ratio - done - function takes individual amounts is inputs - add thing that only allows funds to be added if the ratio is within like 2% or something just incase ratio changes before submitted order gets approved
+ - if there are no tokens the raio is 1:1
  - they get the spl tokens in return that represent share of the pool
+
+   // use this in front end for getting addresses for the add liq function const poolAccount = await program.account.pool.fetch(poolPublicKey);
