@@ -238,7 +238,7 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal((-userTokenADifference).toString(), amountA.toString(), "Difference in the user's token A balances is wrong.");
     assert.equal((-userTokenBDifference).toString(), amountB.toString(), "Difference in the user's token B balances is wrong.");
     assert.equal((poolTokenADifference).toString(), amountA.toString(), "Difference in the pool's token A balances is wrong.");
-    assert.equal((poolTokenBDifference).toString(), amountB.toString(), "Difference in pool's token B balances is wrong.");
+    assert.equal((poolTokenBDifference).toString(), amountB.toString(), "Difference in the pool's token B balances is wrong.");
   });
 
 });
