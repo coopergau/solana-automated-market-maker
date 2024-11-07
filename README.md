@@ -17,10 +17,14 @@ Users can swap tokens using liquidity pools. The swap prices are determined by t
 
 # To do
 
-Add the add liquidity function
- - change the tests so ther is an init describe and then each describe is like an function call and then the tests just follow 
- - users add both kinds of liquidity according to the current ratio - done - function takes individual amounts is inputs - add thing that only allows funds to be added if the ratio is within like 2% or something just incase ratio changes before submitted order gets approved
- - if there are no tokens the raio is 1:1
- - they get the spl tokens in return that represent share of the pool
+secuirity checks in functions to make sure like the pool account and mint accounts and reserves and all that correspond to each other
+remove liquidity function
+swap function
 
+
+check when you need to borrow ownership from the ctx struct
+
+
+Things to test
+ - The add add liquidity mints the right amount of LP tokens if the ratio is different - right now we just test the first liq providor so the amount is always 1 - so this could be an integration test, like liquidity is provided, swaps happen, then test the add liquidity function still works after that
    // use this in front end for getting addresses for the add liq function const poolAccount = await program.account.pool.fetch(poolPublicKey);

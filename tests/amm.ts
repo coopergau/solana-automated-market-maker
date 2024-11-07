@@ -18,6 +18,7 @@ describe("Liquidity Pool Functionality", () => {
   let tokenBReservePda: anchor.web3.PublicKey;
   let mintAuthorityA: anchor.web3.Keypair;
   let mintAuthorityB: anchor.web3.Keypair;
+  const decimals = 9;
 
   // Global variables for example liquidity pool
   let poolPda: anchor.web3.PublicKey;
@@ -59,7 +60,6 @@ describe("Liquidity Pool Functionality", () => {
     const freezeAutorityB = Keypair.generate();
     const tokenAKeypair = Keypair.generate();
     const tokenBKeypair = Keypair.generate();
-    const decimals = 9;
 
     tokenAMintPda = await createMint(connection, payer, mintAuthorityA.publicKey, freezeAutorityA.publicKey, decimals, tokenAKeypair);
     tokenBMintPda = await createMint(connection, payer, mintAuthorityB.publicKey, freezeAutorityB.publicKey, decimals, tokenBKeypair);

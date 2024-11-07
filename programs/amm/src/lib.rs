@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, Mint, TokenAccount, Transfer, MintTo};
+use anchor_spl::token::{self, Token, Mint, TokenAccount, Transfer, MintTo, Burn};
 
 declare_id!("4aYmUZwssmfkaN6igxi4Sgy3toi3D1dNGwJdwtGCWcjk");
 
@@ -31,26 +31,26 @@ pub mod amm {
         let pool_a = &mut ctx.accounts.token_a_reserves;
         let pool_b = &mut ctx.accounts.token_b_reserves;
         let user_authority = &mut ctx.accounts.user;
-        let token_program = &ctx.accounts.token_program;
+        let cpi_token_program = &ctx.accounts.token_program;
 
-        let transfer_a_accounts = Transfer {
-            from: user_a.to_account_info().clone(),
-            to: pool_a.to_account_info().clone(),
-            authority: user_authority.to_account_info().clone(),
+        let transfer_a_cpi_accounts = Transfer {
+            from: user_a.to_account_info(),
+            to: pool_a.to_account_info(),
+            authority: user_authority.to_account_info(),
         };
 
-        let transfer_b_accounts = Transfer {
-            from: user_b.to_account_info().clone(),
-            to: pool_b.to_account_info().clone(),
-            authority: user_authority.to_account_info().clone(),
+        let transfer_b_cpi_accounts = Transfer {
+            from: user_b.to_account_info(),
+            to: pool_b.to_account_info(),
+            authority: user_authority.to_account_info(),
         };
 
         token::transfer(
-            CpiContext::new(token_program.to_account_info().clone(), transfer_a_accounts),
+            CpiContext::new(cpi_token_program.to_account_info(), transfer_a_cpi_accounts),
             amount_a)?;
 
         token::transfer(
-            CpiContext::new(token_program.to_account_info().clone(), transfer_b_accounts),
+            CpiContext::new(cpi_token_program.to_account_info(), transfer_b_cpi_accounts),
             amount_b)?;
 
         // Mint liquidity pool tokens to the user
@@ -87,22 +87,102 @@ pub mod amm {
             &[pool_bump],
         ];
 
-        let mint_lp_accounts = MintTo {
-            mint: mint_lp.to_account_info().clone(),
-            to: user_lp.to_account_info().clone(),
-            authority: pool_authority.to_account_info().clone(),
+        let mint_lp_cpi_accounts = MintTo {
+            mint: mint_lp.to_account_info(),
+            to: user_lp.to_account_info(),
+            authority: pool_authority.to_account_info(),
         };
         
         token::mint_to(
             CpiContext::new_with_signer(
-                token_program.to_account_info().clone(),
-                mint_lp_accounts,
+                cpi_token_program.to_account_info(),
+                mint_lp_cpi_accounts,
                 &[&pool_seeds[..]],
             ),
             user_lp_token_amount)?;
         Ok(())
     }
 
+    pub fn remove_liquidity(ctx: Context<RemoveLiquidity>) -> Result<()> {
+        // Burn the users LP tokens
+        let mint_lp = &ctx.accounts.token_lp_mint;
+        let user_lp = &ctx.accounts.user_token_lp;
+        let user_authority = &mut ctx.accounts.user;
+        let cpi_token_program = &ctx.accounts.token_program;
+
+        let burn_amount = user_lp.amount;
+
+        let burn_cpi_accounts = Burn {
+            mint: mint_lp.to_account_info(),
+            from: user_lp.to_account_info(),
+            authority: user_authority.to_account_info(),
+        };
+
+        token::burn(
+            CpiContext::new(cpi_token_program.to_account_info(), burn_cpi_accounts),
+            burn_amount,
+        )?;
+
+        // Transfer the user their share of the pool's reserve tokens
+        let pool_token_a = &ctx.accounts.token_a_reserves;
+        let pool_token_b = &ctx.accounts.token_b_reserves;
+        let user_token_a = &ctx.accounts.user_token_a;
+        let user_token_b = &ctx.accounts.user_token_b;
+        let pool_authority = &ctx.accounts.pool;
+        let token_a_mint_key = ctx.accounts.token_a_mint.key();
+        let token_b_mint_key = ctx.accounts.token_b_mint.key();
+
+        let total_lp_tokens = mint_lp.supply;
+        let user_lp_proportion = burn_amount / total_lp_tokens;
+        let user_token_a_owed = pool_token_a.amount * user_lp_proportion;
+        let user_token_b_owed = pool_token_b.amount * user_lp_proportion;
+
+        // Get pool account info for signing the transfer transaction
+        let (_, pool_bump) = Pubkey::find_program_address(
+            &[b"pool", token_a_mint_key.as_ref(), token_b_mint_key.as_ref()],
+            ctx.program_id
+        );
+
+        let pool_seeds = &[
+            b"pool",
+            token_a_mint_key.as_ref(),
+            token_b_mint_key.as_ref(),
+            &[pool_bump],
+        ];
+
+        let transfer_a_cpi_accounts = Transfer {
+            from: pool_token_a.to_account_info(),
+            to: user_token_a.to_account_info(),
+            authority: pool_authority.to_account_info(),
+        };
+
+        // Transfer token A to user
+        token::transfer(
+            CpiContext::new_with_signer(
+                cpi_token_program.to_account_info(),
+                transfer_a_cpi_accounts,
+                &[&pool_seeds[..]],
+            ),
+            user_token_a_owed,
+        )?;
+        
+        let transfer_b_cpi_accounts = Transfer {
+            from: pool_token_b.to_account_info(),
+            to: user_token_b.to_account_info(),
+            authority: pool_authority.to_account_info(),
+        };
+
+        // Transfer token B to user
+        token::transfer(
+            CpiContext::new_with_signer(
+                cpi_token_program.to_account_info(),
+                transfer_b_cpi_accounts,
+                &[&pool_seeds[..]],
+            ),
+            user_token_b_owed,
+        )?;
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -168,7 +248,6 @@ pub struct InitializePoolReserves<'info> {
 
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
-    #[account(mut)]
     pub pool: Account<'info, Pool>,
     #[account(mut)]
     pub token_lp_mint: Account<'info, Mint>,
@@ -178,7 +257,6 @@ pub struct AddLiquidity<'info> {
     pub token_a_reserves: Account<'info, TokenAccount>,
     #[account(mut)]
     pub token_b_reserves: Account<'info, TokenAccount>,
-    #[account(mut)]
     pub user: Signer<'info>,
     #[account(mut)]
     pub user_token_a: Account<'info, TokenAccount>,
@@ -186,6 +264,24 @@ pub struct AddLiquidity<'info> {
     pub user_token_b: Account<'info, TokenAccount>,
     #[account(mut)]
     pub user_token_lp: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RemoveLiquidity<'info> {
+    pub pool: Account<'info, Pool>,
+    pub token_a_reserves: Account<'info, TokenAccount>,
+    pub token_b_reserves: Account<'info, TokenAccount>,
+    pub token_a_mint: Box<Account<'info, Mint>>,
+    pub token_b_mint: Box<Account<'info, Mint>>,
+    #[account(mut)]
+    pub token_lp_mint: Account<'info, Mint>,
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub user_token_lp: Account<'info, TokenAccount>,
+    pub user_token_a: Account<'info, TokenAccount>,
+    pub user_token_b: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
