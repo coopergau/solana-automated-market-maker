@@ -62,18 +62,43 @@ pub mod amm {
         let pool_token_a_amount = &ctx.accounts.token_a_reserves.amount;
         let pool_token_b_amount = &ctx.accounts.token_b_reserves.amount;
         let total_pool_tokens = pool_token_a_amount + pool_token_b_amount;
+        let user_lp_token_amount;
 
-        let user_deposit_proportion = (amount_a + amount_b) / total_pool_tokens;
-        let user_lp_token_amount = user_deposit_proportion * total_lp_tokens;
+        if total_pool_tokens == 0 {
+            user_lp_token_amount = 1;
+        } else {
+            let user_deposit_proportion = (amount_a + amount_b) / total_pool_tokens;
+            user_lp_token_amount = user_deposit_proportion * total_lp_tokens;
+        }
+        
+        // Get pool account info for signing the mint_to transaction
+        let (_, pool_bump) = Pubkey::find_program_address(
+            &[b"pool", ctx.accounts.token_a_mint.key().as_ref(), ctx.accounts.token_b_mint.key().as_ref()],
+            ctx.program_id
+        );
+
+        let token_a_mint_key = ctx.accounts.token_a_mint.key();
+        let token_b_mint_key = ctx.accounts.token_b_mint.key();
+
+        let pool_seeds = &[
+            b"pool",
+            token_a_mint_key.as_ref(),
+            token_b_mint_key.as_ref(),
+            &[pool_bump],
+        ];
 
         let mint_lp_accounts = MintTo {
             mint: mint_lp.to_account_info().clone(),
             to: user_lp.to_account_info().clone(),
             authority: pool_authority.to_account_info().clone(),
         };
-
+        
         token::mint_to(
-            CpiContext::new(token_program.to_account_info().clone(), mint_lp_accounts),
+            CpiContext::new_with_signer(
+                token_program.to_account_info().clone(),
+                mint_lp_accounts,
+                &[&pool_seeds[..]],
+            ),
             user_lp_token_amount)?;
         Ok(())
     }
@@ -143,7 +168,9 @@ pub struct InitializePoolReserves<'info> {
 
 #[derive(Accounts)]
 pub struct AddLiquidity<'info> {
+    #[account(mut)]
     pub pool: Account<'info, Pool>,
+    #[account(mut)]
     pub token_lp_mint: Account<'info, Mint>,
     pub token_a_mint: Box<Account<'info, Mint>>,
     pub token_b_mint: Box<Account<'info, Mint>>,

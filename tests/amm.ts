@@ -2,7 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Amm } from "../target/types/amm";
 import { Keypair, LAMPORTS_PER_SOL, SystemProgram } from '@solana/web3.js';
-import { Account, TOKEN_PROGRAM_ID, createMint, getAccount, getOrCreateAssociatedTokenAccount, mintTo } from '@solana/spl-token';
+import { Account, TOKEN_PROGRAM_ID, createMint, getAccount, getMint, getOrCreateAssociatedTokenAccount, mintTo } from '@solana/spl-token';
 import { assert } from "chai";
 
 describe("Liquidity Pool Functionality", () => {
@@ -10,7 +10,6 @@ describe("Liquidity Pool Functionality", () => {
   let connection: anchor.web3.Connection;
   let program: anchor.Program<Amm>;
   let ammId: anchor.web3.PublicKey; // Is this actually needed
-  let payer: anchor.web3.Keypair;
 
   // Global variables for example tokens A and B
   let tokenAMintPda: anchor.web3.PublicKey;
@@ -19,11 +18,16 @@ describe("Liquidity Pool Functionality", () => {
   let tokenBReservePda: anchor.web3.PublicKey;
   let mintAuthorityA: anchor.web3.Keypair;
   let mintAuthorityB: anchor.web3.Keypair;
+
+  // Global variables for example liquidity pool
   let poolPda: anchor.web3.PublicKey;
+  let LPMintPda: anchor.web3.PublicKey;
 
   // Global variables for an example payer
+  let payer: anchor.web3.Keypair;
   let userTokenAAccount: Account;
   let userTokenBAccount: Account;
+  let userTokenLPAccount: Account;
   const tokenAMintAmount = 10;
   const tokenBMintAmount = 10;
 
@@ -94,13 +98,21 @@ describe("Liquidity Pool Functionality", () => {
   });
 
   it("Liquidity pool is initialzed", async () => {
+    // Get the PDAs for the liquidity pool and the pool's token mint account
     [poolPda,] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("pool"), tokenAMintPda.toBuffer(), tokenBMintPda.toBuffer()],
       ammId
     );
 
+    [LPMintPda,] = anchor.web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("mint"), poolPda.toBuffer()],
+      ammId
+    );
+
+    // Initialize a liquidity pool
     const accounts = {
       pool: poolPda,
+      tokenLpMint: LPMintPda,
       tokenAMint: tokenAMintPda,
       tokenBMint: tokenBMintPda,
       token_program: TOKEN_PROGRAM_ID,
@@ -122,17 +134,19 @@ describe("Liquidity Pool Functionality", () => {
     assert.ok(poolAccountInfo !== null, "Pool account was not created");
     assert.equal(poolAccountInfo.owner.toString(), program.programId.toString(), "Pool account is not owned by the program")
 
-    // Check that the initial pool state is correct
+    // Check that the pool's token A and B mint addresses are stored correctly
     const poolState = await program.account.pool.fetch(poolPda);
     assert.equal(poolState.tokenAMint.toString(), tokenAMintPda.toString(), "Pool token A mint address is wrong");
     assert.equal(poolState.tokenBMint.toString(), tokenBMintPda.toString(), "Pool token B mint address is wrong");
 
+    // Check that the pool's token accounts are the null address
     const nullAddress = "11111111111111111111111111111111";
     assert.equal(poolState.tokenAReserves.toString(), nullAddress, "Pool token A reserve address should be zero");
     assert.equal(poolState.tokenAReserves.toString(), nullAddress, "Pool token B reserve address should be zero");
   });
 
   it("Pool reserves are initialized", async () => {
+    // Get the PDAs for the pool's token accounts
     [tokenAReservePda,] = anchor.web3.PublicKey.findProgramAddressSync(
       [Buffer.from("reserves"), tokenAMintPda.toBuffer(), poolPda.toBuffer()],
       ammId
@@ -142,6 +156,7 @@ describe("Liquidity Pool Functionality", () => {
       ammId
     );
 
+    // Create the pool's token acounts
     const accounts = {
       tokenAReserves: tokenAReservePda,
       tokenBReserves: tokenBReservePda,
@@ -172,13 +187,13 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal(poolAccountTokenA.amount.toString(), "0", "Token A reserve account should have initial balance of zero");
     assert.equal(poolAccountTokenB.amount.toString(), "0", "Token B reserve account should have initial balance of zero");
 
-    // Check that the pool state is updated correctly
+    // Check that the pool token account addresses are updated correctly
     const poolState = await program.account.pool.fetch(poolPda);
     assert.equal(poolState.tokenAReserves.toString(), tokenAReservePda.toString(), "The pool's token A reserve account does not match expected address");
     assert.equal(poolState.tokenBReserves.toString(), tokenBReservePda.toString(), "The pool's token B reserve account does not match expected address");
   });
 
-  it("Add liguidity function changes account balances correctly", async () => {
+  it("Add liguidity function changes account balances of tokens A and B correctly", async () => {
     // Get the initial balances of the user token accounts and the liquidity pool token accounts
     const initialUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
     const initialUserTokenABalance = initialUserTokenAInfo.amount;
@@ -190,9 +205,18 @@ describe("Liquidity Pool Functionality", () => {
     const initialPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
     const initialPoolTokenBBalance = initialPoolTokenBInfo.amount;
 
+    // Create the user's LP token account
+    userTokenLPAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer,
+      LPMintPda,
+      payer.publicKey
+    );
+
     // Transaction accounts
     const accounts = {
       pool: poolPda,
+      tokenLpMint: LPMintPda,
       tokenAMint: tokenAMintPda,
       tokenBMint: tokenBMintPda,
       tokenAReserves: tokenAReservePda,
@@ -200,6 +224,7 @@ describe("Liquidity Pool Functionality", () => {
       user: payer.publicKey,
       userTokenA: userTokenAAccount.address,
       userTokenB: userTokenBAccount.address,
+      userTokenLp: userTokenLPAccount.address,
       token_program: TOKEN_PROGRAM_ID,
       system_program: SystemProgram.programId,
     };
@@ -241,4 +266,62 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal((poolTokenBDifference).toString(), amountB.toString(), "Difference in the pool's token B balances is wrong.");
   });
 
+  it("Add liquidity function mints LP token correctly", async () => {
+    // Get the initial amounts of the user LP token account balance and the LP token mint supply
+    const initialUserTokenLPInfo = await getAccount(connection, userTokenLPAccount.address);
+    const initialUserTokenLPBalance = initialUserTokenLPInfo.amount;
+    const initialLPMintInfo = await getMint(connection, LPMintPda);
+    const initialLPMintSupply = initialLPMintInfo.supply;
+
+    // Get expected change values
+    const poolAReserves = await getAccount(connection, tokenAReservePda);
+    const currentAReserves = new anchor.BN(poolAReserves.amount.toString());
+    const poolBReserves = await getAccount(connection, tokenBReservePda)
+    const currentBReserves = new anchor.BN(poolBReserves.amount.toString());
+
+    const amountA = new anchor.BN(1 * 10 ** 9);
+    const amountB = new anchor.BN(1 * 10 ** 9);
+    const userDepositProportion = (amountA.add(amountB)).div(currentAReserves.add(currentBReserves))
+    const expectedLPsMinted = userDepositProportion.mul(userDepositProportion);
+
+    // Transaction accounts
+    const accounts = {
+      pool: poolPda,
+      tokenLpMint: LPMintPda,
+      tokenAMint: tokenAMintPda,
+      tokenBMint: tokenBMintPda,
+      tokenAReserves: tokenAReservePda,
+      tokenBReserves: tokenBReservePda,
+      user: payer.publicKey,
+      userTokenA: userTokenAAccount.address,
+      userTokenB: userTokenBAccount.address,
+      userTokenLp: userTokenLPAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
+
+    // User adds liquidity to the pool
+    try {
+      const tx = await program.methods.addLiquidity(amountA, amountB)
+        .accounts(accounts)
+        .signers([payer])
+        .rpc()
+    } catch (error) {
+      console.error("failed to add liquidity:", error)
+    }
+
+    // Get the final amounts of the user LP token account balance and the LP token mint supply
+    const finalUserTokenLPInfo = await getAccount(connection, userTokenLPAccount.address);
+    const finalUserTokenLPBalance = finalUserTokenLPInfo.amount;
+    const finalLPMintInfo = await getMint(connection, LPMintPda);
+    const finalLPMintSupply = finalLPMintInfo.supply;
+
+    // Get the change in the user LP token account balance and the LP token mint supply
+    const userTokenLPDifference = finalUserTokenLPBalance - initialUserTokenLPBalance;
+    const LPMintSupplyDifference = finalLPMintSupply - initialLPMintSupply;
+
+    // Make sure all the changes are correct
+    assert.equal((userTokenLPDifference).toString(), expectedLPsMinted.toString(), "Users new LP token balance is not what was expected");
+    assert.equal((LPMintSupplyDifference).toString(), expectedLPsMinted.toString(), "New total LP token mint supply is not what was expected");
+  });
 });
