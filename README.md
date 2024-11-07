@@ -21,6 +21,8 @@ secuirity checks in functions to make sure like the pool account and mint accoun
 remove liquidity function
 swap function
 
+dont need the mint_a and mint_b addresses as accounts in the add and remove liquidity function because they are stored in the pool. check to see if we need them in the functions or if we can just do this
+
 
 check when you need to borrow ownership from the ctx struct
 
