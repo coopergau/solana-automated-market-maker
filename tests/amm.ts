@@ -205,6 +205,15 @@ describe("Liquidity Pool Functionality", () => {
     const initialPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
     const initialPoolTokenBBalance = initialPoolTokenBInfo.amount;
 
+    // Calculate the expected final token account balances if they add 2 of each tokens
+    const amountA = BigInt(2 * 10 ** 9);
+    const amountB = BigInt(2 * 10 ** 9);
+
+    const expectedUserTokenABalance = initialUserTokenABalance - amountA;
+    const expectedUserTokenBBalance = initialUserTokenBBalance - amountB;
+    const expectedPoolTokenABalance = initialPoolTokenABalance + amountB;
+    const expectedPoolTokenBBalance = initialPoolTokenBBalance + amountB;
+
     // Create the user's LP token account
     userTokenLPAccount = await getOrCreateAssociatedTokenAccount(
       connection,
@@ -228,12 +237,10 @@ describe("Liquidity Pool Functionality", () => {
       token_program: TOKEN_PROGRAM_ID,
       system_program: SystemProgram.programId,
     };
-    const amountA = new anchor.BN(1 * 10 ** 9);
-    const amountB = new anchor.BN(1 * 10 ** 9);
 
     // User adds liquidity to the pool
     try {
-      const tx = await program.methods.addLiquidity(amountA, amountB)
+      const tx = await program.methods.addLiquidity(new anchor.BN(amountA.toString()), new anchor.BN(amountB.toString()))
         .accounts(accounts)
         .signers([payer])
         .rpc()
@@ -252,18 +259,11 @@ describe("Liquidity Pool Functionality", () => {
     const finalPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
     const finalPoolTokenBBalance = finalPoolTokenBInfo.amount;
 
-    // Get the change in all token account balances
-    const userTokenADifference = finalUserTokenABalance - initialUserTokenABalance;
-    const userTokenBDifference = finalUserTokenBBalance - initialUserTokenBBalance;
-
-    const poolTokenADifference = finalPoolTokenABalance - initialPoolTokenABalance;
-    const poolTokenBDifference = finalPoolTokenBBalance - initialPoolTokenBBalance;
-
-    // Make sure all the changes are correct
-    assert.equal((-userTokenADifference).toString(), amountA.toString(), "Difference in the user's token A balances is wrong.");
-    assert.equal((-userTokenBDifference).toString(), amountB.toString(), "Difference in the user's token B balances is wrong.");
-    assert.equal((poolTokenADifference).toString(), amountA.toString(), "Difference in the pool's token A balances is wrong.");
-    assert.equal((poolTokenBDifference).toString(), amountB.toString(), "Difference in the pool's token B balances is wrong.");
+    // Make sure all the new balances are correct
+    assert.equal(finalUserTokenABalance, expectedUserTokenABalance, "New user token A account balance is wrong.");
+    assert.equal(finalUserTokenBBalance, expectedUserTokenBBalance, "New user token B account balance is wrong.");
+    assert.equal(finalPoolTokenABalance, expectedPoolTokenABalance, "New pool token A account balance is wrong.");
+    assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
   });
 
   it("Add liquidity function mints LP token correctly", async () => {
@@ -323,5 +323,71 @@ describe("Liquidity Pool Functionality", () => {
     // Make sure all the changes are correct
     assert.equal((userTokenLPDifference).toString(), expectedLPsMinted.toString(), "Users new LP token balance is not what was expected");
     assert.equal((LPMintSupplyDifference).toString(), expectedLPsMinted.toString(), "New total LP token mint supply is not what was expected");
+  });
+
+  it("Swap function changes user and pool account balances as expected", async () => {
+    // Get the initial balances of the user token accounts and the liquidity pool token accounts
+    const initialUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
+    const initialUserTokenABalance = initialUserTokenAInfo.amount;
+    const initialUserTokenBInfo = await getAccount(connection, userTokenBAccount.address);
+    const initialUserTokenBBalance = initialUserTokenBInfo.amount;
+
+    const initialPoolTokenAInfo = await getAccount(connection, tokenAReservePda);
+    const initialPoolTokenABalance = initialPoolTokenAInfo.amount;
+    const initialPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
+    const initialPoolTokenBBalance = initialPoolTokenBInfo.amount;
+
+    // Calculate expected final balances of the token accounts if the user swapped 1 token A for some amount of token B
+    const swapInAmount = BigInt(1 * 10 ** 9);
+    const feeNumerator = BigInt(3);
+    const feeDenominator = BigInt(1000);
+
+    const tokenProduct = initialPoolTokenABalance * initialPoolTokenBBalance;
+    const effectiveAmountIn = swapInAmount * feeNumerator / feeDenominator;
+    const expectedSwapOutAmount = initialPoolTokenABalance - (tokenProduct / (initialPoolTokenABalance + effectiveAmountIn));
+
+    const expectedUserTokenABalance = initialUserTokenABalance - swapInAmount;
+    const expectedUserTokenBBalance = initialUserTokenBBalance + expectedSwapOutAmount;
+    const expectedPoolTokenABalance = initialPoolTokenABalance + swapInAmount;
+    const expectedPoolTokenBBalance = initialPoolTokenBBalance - expectedSwapOutAmount;
+
+    // Account setup for swapping token A for token B
+    const swap_accounts = {
+      pool: poolPda,
+      tokenInReserves: tokenAReservePda,
+      tokenOutReserves: tokenBReservePda,
+      user: payer.publicKey,
+      userTokenIn: userTokenAAccount.address,
+      userTokenOut: userTokenBAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
+
+    // User swaps the tokens
+    try {
+      const tx = await program.methods.swap(new anchor.BN(swapInAmount.toString()))
+        .accounts(swap_accounts)
+        .signers([payer])
+        .rpc()
+    } catch (error) {
+      console.error("failed to swap tokens:", error)
+    }
+
+    // Get the final balances of the user token accounts and the liquidity pool token accounts
+    const finalUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
+    const finalUserTokenABalance = finalUserTokenAInfo.amount;
+    const finalUserTokenBInfo = await getAccount(connection, userTokenBAccount.address);
+    const finalUserTokenBBalance = finalUserTokenBInfo.amount;
+
+    const finalPoolTokenAInfo = await getAccount(connection, tokenAReservePda);
+    const finalPoolTokenABalance = finalPoolTokenAInfo.amount;
+    const finalPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
+    const finalPoolTokenBBalance = finalPoolTokenBInfo.amount;
+
+    // Make sure all the new balances are correct
+    assert.equal(finalUserTokenABalance, expectedUserTokenABalance, "New user token A account balance is wrong.");
+    assert.equal(finalUserTokenBBalance, expectedUserTokenBBalance, "New user token B account balance is wrong.");
+    assert.equal(finalPoolTokenABalance, expectedPoolTokenABalance, "New pool token A account balance is wrong.");
+    assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
   });
 });

@@ -8,10 +8,9 @@ Users can swap tokens using liquidity pools. The swap prices are determined by t
 2. Add liquidity
     - deposit tokens according to the current pool ratio
     - get back the pool share tokens
-3. remove liquidity + rewards
+3. remove liquidity
     - deposit the pool share tokens
     - get back the tokens according to new current ratio
-4. mint pool token
 5. swap tokens
     - pay a fee to the liquidity pool - 0.3%
 
