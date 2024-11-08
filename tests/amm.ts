@@ -342,7 +342,7 @@ describe("Liquidity Pool Functionality", () => {
     const feeDenominator = BigInt(1000);
 
     const tokenProduct = initialPoolTokenABalance * initialPoolTokenBBalance;
-    const effectiveAmountIn = swapInAmount * feeNumerator / feeDenominator;
+    const effectiveAmountIn = swapInAmount * (BigInt(1) - (feeNumerator / feeDenominator));
     const expectedSwapOutAmount = initialPoolTokenABalance - (tokenProduct / (initialPoolTokenABalance + effectiveAmountIn));
 
     const expectedUserTokenABalance = initialUserTokenABalance - swapInAmount;
@@ -389,4 +389,5 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal(finalPoolTokenABalance, expectedPoolTokenABalance, "New pool token A account balance is wrong.");
     assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
   });
+
 });

@@ -206,7 +206,7 @@ pub mod amm {
         let token_in_balance = pool_reserves_in.amount;
         let token_out_balance = pool_reserves_out.amount;
         let token_product = token_in_balance * token_out_balance;
-        let effective_amount_in = amount_in * FEE_NUMERATOR / FEE_DENOMINATOR;
+        let effective_amount_in = amount_in * (1 - (FEE_NUMERATOR / FEE_DENOMINATOR));
 
         let amount_out =
             token_out_balance - (token_product / (token_in_balance + effective_amount_in));
