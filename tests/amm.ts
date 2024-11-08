@@ -273,16 +273,19 @@ describe("Liquidity Pool Functionality", () => {
     const initialLPMintInfo = await getMint(connection, LPMintPda);
     const initialLPMintSupply = initialLPMintInfo.supply;
 
-    // Get expected change values
+    // Get expected final balance of the user LP token and the Lp token mint supply
     const poolAReserves = await getAccount(connection, tokenAReservePda);
-    const currentAReserves = new anchor.BN(poolAReserves.amount.toString());
+    const currentAReserves = poolAReserves.amount;
     const poolBReserves = await getAccount(connection, tokenBReservePda)
-    const currentBReserves = new anchor.BN(poolBReserves.amount.toString());
+    const currentBReserves = poolBReserves.amount;
 
-    const amountA = new anchor.BN(1 * 10 ** 9);
-    const amountB = new anchor.BN(1 * 10 ** 9);
-    const userDepositProportion = (amountA.add(amountB)).div(currentAReserves.add(currentBReserves))
-    const expectedLPsMinted = userDepositProportion.mul(userDepositProportion);
+    const amountA = BigInt(1 * 10 ** 9);
+    const amountB = BigInt(1 * 10 ** 9);
+    const userDepositProportion = (amountA + amountB) / (currentAReserves + currentBReserves);
+    const expectedLPsMinted = userDepositProportion * userDepositProportion;
+
+    const expectedUserTokenLPBalance = initialUserTokenLPBalance + expectedLPsMinted;
+    const expectedLPMintSupply = initialLPMintSupply + expectedLPsMinted;
 
     // Transaction accounts
     const accounts = {
@@ -302,7 +305,7 @@ describe("Liquidity Pool Functionality", () => {
 
     // User adds liquidity to the pool
     try {
-      const tx = await program.methods.addLiquidity(amountA, amountB)
+      const tx = await program.methods.addLiquidity(new anchor.BN(amountA.toString()), new anchor.BN(amountB.toString()))
         .accounts(accounts)
         .signers([payer])
         .rpc()
@@ -316,13 +319,9 @@ describe("Liquidity Pool Functionality", () => {
     const finalLPMintInfo = await getMint(connection, LPMintPda);
     const finalLPMintSupply = finalLPMintInfo.supply;
 
-    // Get the change in the user LP token account balance and the LP token mint supply
-    const userTokenLPDifference = finalUserTokenLPBalance - initialUserTokenLPBalance;
-    const LPMintSupplyDifference = finalLPMintSupply - initialLPMintSupply;
-
-    // Make sure all the changes are correct
-    assert.equal((userTokenLPDifference).toString(), expectedLPsMinted.toString(), "Users new LP token balance is not what was expected");
-    assert.equal((LPMintSupplyDifference).toString(), expectedLPsMinted.toString(), "New total LP token mint supply is not what was expected");
+    // Make sure the new balances are correct
+    assert.equal(finalUserTokenLPBalance, expectedUserTokenLPBalance, "Users new LP token balance is wrong");
+    assert.equal(finalLPMintSupply, expectedLPMintSupply, "New total LP token mint supply is wrong");
   });
 
   it("Swap function changes user and pool account balances as expected", async () => {
