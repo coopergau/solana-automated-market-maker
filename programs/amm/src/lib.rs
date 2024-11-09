@@ -3,6 +3,18 @@ use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer}
 
 declare_id!("4aYmUZwssmfkaN6igxi4Sgy3toi3D1dNGwJdwtGCWcjk");
 
+#[error_code]
+pub enum Errors {
+    #[msg("Liquidity ratio is incorrect.")]
+    IncorrectLiquidityRatio,
+    #[msg("User account has no liquidity pool tokens to redeem.")]
+    NoLiquidityPoolTokens,
+    #[msg("Submitted pool reserve account(s) and submitted pool account don't match.")]
+    IncorrectPoolTokenAccount,
+    #[msg("Submitted liquidity pool account and submitted pool account don't match.")]
+    IncorrectLPTokenAccount,
+}
+
 #[program]
 pub mod amm {
     use super::*;
@@ -12,7 +24,6 @@ pub mod amm {
         pool.token_a_mint = ctx.accounts.token_a_mint.key();
         pool.token_b_mint = ctx.accounts.token_b_mint.key();
         pool.token_lp_mint = ctx.accounts.token_lp_mint.key();
-        msg!("Pool Initialized");
         Ok(())
     }
 
@@ -20,7 +31,6 @@ pub mod amm {
         let pool = &mut ctx.accounts.pool;
         pool.token_a_reserves = ctx.accounts.token_a_reserves.key();
         pool.token_b_reserves = ctx.accounts.token_b_reserves.key();
-        msg!("Pool Reserves Initialized");
         Ok(())
     }
 
@@ -32,6 +42,18 @@ pub mod amm {
         let pool_b = &mut ctx.accounts.token_b_reserves;
         let user_authority = &mut ctx.accounts.user;
         let cpi_token_program = &ctx.accounts.token_program;
+        let pool = &ctx.accounts.pool;
+
+        // Make sure the pool reserve accounts and submitted reserve accounts match
+        require_eq!(pool_a.to_account_info().key(), pool.token_a_reserves, Errors::IncorrectPoolTokenAccount);
+        require_eq!(pool_b.to_account_info().key(), pool.token_b_reserves, Errors::IncorrectPoolTokenAccount);
+
+        // Make sure the ratio of new liquidity is correct
+        if pool_b.amount == 0 {
+            require_eq!(amount_a, amount_b, Errors::IncorrectLiquidityRatio);
+        } else {
+            require_eq!(amount_a/amount_b, pool_a.amount/pool_b.amount, Errors::IncorrectLiquidityRatio);
+        }
 
         let transfer_a_cpi_accounts = Transfer {
             from: user_a.to_account_info(),
@@ -58,7 +80,6 @@ pub mod amm {
         // Mint liquidity pool tokens to the user
         let mint_lp = &ctx.accounts.token_lp_mint;
         let user_lp = &mut ctx.accounts.user_token_lp;
-        let pool = &ctx.accounts.pool;
 
         let total_lp_tokens = mint_lp.supply;
         let pool_token_a_amount = &ctx.accounts.token_a_reserves.amount;
@@ -111,14 +132,27 @@ pub mod amm {
     }
 
     pub fn remove_liquidity(ctx: Context<RemoveLiquidity>) -> Result<()> {
-        // Burn the users LP tokens
         let mint_lp = &ctx.accounts.token_lp_mint;
         let user_lp = &ctx.accounts.user_token_lp;
         let user_authority = &mut ctx.accounts.user;
         let cpi_token_program = &ctx.accounts.token_program;
+        let pool = &ctx.accounts.pool;
+        let pool_token_a = &ctx.accounts.token_a_reserves;
+        let pool_token_b = &ctx.accounts.token_b_reserves;
 
         let burn_amount = user_lp.amount;
 
+        // Make sure the user actually has lp tokens
+        require!(burn_amount > 0, Errors::NoLiquidityPoolTokens);
+
+        // Make sure the pool reserve accounts and submitted reserve accounts match
+        require_eq!(pool_token_a.to_account_info().key(), pool.token_a_reserves, Errors::IncorrectPoolTokenAccount);
+        require_eq!(pool_token_b.to_account_info().key(), pool.token_b_reserves, Errors::IncorrectPoolTokenAccount);
+
+        // Make sure the pool lp token account and the submitted lp token account match
+        require_eq!(mint_lp.to_account_info().key(), pool.token_lp_mint, Errors::IncorrectLPTokenAccount);
+
+        // Burn the users LP tokens
         let burn_cpi_accounts = Burn {
             mint: mint_lp.to_account_info(),
             from: user_lp.to_account_info(),
@@ -131,11 +165,8 @@ pub mod amm {
         )?;
 
         // Transfer the user their share of the pool's reserve tokens
-        let pool_token_a = &ctx.accounts.token_a_reserves;
-        let pool_token_b = &ctx.accounts.token_b_reserves;
         let user_token_a = &ctx.accounts.user_token_a;
         let user_token_b = &ctx.accounts.user_token_b;
-        let pool = &ctx.accounts.pool;
         let token_a_mint_key = pool.token_a_mint;
         let token_b_mint_key = pool.token_b_mint;
 

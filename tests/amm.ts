@@ -193,6 +193,121 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal(poolState.tokenBReserves.toString(), tokenBReservePda.toString(), "The pool's token B reserve account does not match expected address");
   });
 
+  it("Add Liquidity function reverts if the submitted ratio is wrong", async () => {
+    // Initial ratio should be 1:1, this is 2:1
+    const amountA = BigInt(2 * 10 ** 9);
+    const amountB = BigInt(1 * 10 ** 9);
+
+    // Create the user's LP token account
+    userTokenLPAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer,
+      LPMintPda,
+      payer.publicKey
+    );
+
+    // Transaction accounts
+    const accounts = {
+      pool: poolPda,
+      tokenLpMint: LPMintPda,
+      tokenAMint: tokenAMintPda,
+      tokenBMint: tokenBMintPda,
+      tokenAReserves: tokenAReservePda,
+      tokenBReserves: tokenBReservePda,
+      user: payer.publicKey,
+      userTokenA: userTokenAAccount.address,
+      userTokenB: userTokenBAccount.address,
+      userTokenLp: userTokenLPAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
+
+    // User tries to add liquidity to the pool
+    try {
+      const tx = await program.methods.addLiquidity(new anchor.BN(amountA.toString()), new anchor.BN(amountB.toString()))
+        .accounts(accounts)
+        .signers([payer])
+        .rpc();
+      chai.assert(false, "should've failed but didn't")
+    } catch (error) {
+      assert.equal(error.error.errorCode.code, "IncorrectLiquidityRatio");
+    }
+  });
+
+  it("Add Liquidity function reverts if submitted reserve token A account pool account are inconsistent", async () => {
+    // Ratio is correct
+    const amountA = BigInt(1 * 10 ** 9);
+    const amountB = BigInt(1 * 10 ** 9);
+
+    // Transaction accounts
+    // The account tokenAReserves is set to the tokenBReservePda because we need to use an account that has already been initialized or it will return a different error.
+    const accounts = {
+      pool: poolPda,
+      tokenLpMint: LPMintPda,
+      tokenAMint: tokenAMintPda,
+      tokenBMint: tokenBMintPda,
+      tokenAReserves: tokenBReservePda, // This should trigger the error
+      tokenBReserves: tokenBReservePda,
+      user: payer.publicKey,
+      userTokenA: userTokenAAccount.address,
+      userTokenB: userTokenBAccount.address,
+      userTokenLp: userTokenLPAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
+
+    // User tries to add liquidity to the pool
+    try {
+      const tx = await program.methods.addLiquidity(new anchor.BN(amountA.toString()), new anchor.BN(amountB.toString()))
+        .accounts(accounts)
+        .signers([payer])
+        .rpc();
+      chai.assert(false, "should've failed but didn't")
+    } catch (error) {
+      assert.equal(error.error.errorCode.code, "IncorrectPoolTokenAccount");
+    }
+  });
+
+  it("Add Liquidity function reverts if submitted reserve token A account pool account are inconsistent", async () => {
+    // This is almost exactly the same as the previous test, the accounts are just both tokenAReservePda now.
+    // Ratio is correct
+    const amountA = BigInt(1 * 10 ** 9);
+    const amountB = BigInt(1 * 10 ** 9);
+
+    // Transaction accounts
+    // The account tokenBReserves is set to the tokenAReservePda because we need to use an account that has already been initialized or it will return a different error.
+    const accounts = {
+      pool: poolPda,
+      tokenLpMint: LPMintPda,
+      tokenAMint: tokenAMintPda,
+      tokenBMint: tokenBMintPda,
+      tokenAReserves: tokenAReservePda,
+      tokenBReserves: tokenAReservePda, // This should trigger the error
+      user: payer.publicKey,
+      userTokenA: userTokenAAccount.address,
+      userTokenB: userTokenBAccount.address,
+      userTokenLp: userTokenLPAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
+
+    // User tries to add liquidity to the pool
+    try {
+      const tx = await program.methods.addLiquidity(new anchor.BN(amountA.toString()), new anchor.BN(amountB.toString()))
+        .accounts(accounts)
+        .signers([payer])
+        .rpc();
+      chai.assert(false, "should've failed but didn't")
+    } catch (error) {
+      assert.equal(error.error.errorCode.code, "IncorrectPoolTokenAccount");
+    }
+
+  });
+
+  it("Remove Liquidity function reverts if the submitted lp token account has no lp tokens", async () => {
+
+  });
+
   it("Add liguidity function changes account balances of tokens A and B correctly", async () => {
     // Get the initial balances of the user token accounts and the liquidity pool token accounts
     const initialUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
@@ -213,14 +328,6 @@ describe("Liquidity Pool Functionality", () => {
     const expectedUserTokenBBalance = initialUserTokenBBalance - amountB;
     const expectedPoolTokenABalance = initialPoolTokenABalance + amountB;
     const expectedPoolTokenBBalance = initialPoolTokenBBalance + amountB;
-
-    // Create the user's LP token account
-    userTokenLPAccount = await getOrCreateAssociatedTokenAccount(
-      connection,
-      payer,
-      LPMintPda,
-      payer.publicKey
-    );
 
     // Transaction accounts
     const accounts = {
@@ -266,7 +373,7 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
   });
 
-  it("Add liquidity function mints LP token correctly", async () => {
+  it("Add liquidity function changes the LP token balance and supply correctly", async () => {
     // Get the initial amounts of the user LP token account balance and the LP token mint supply
     const initialUserTokenLPInfo = await getAccount(connection, userTokenLPAccount.address);
     const initialUserTokenLPBalance = initialUserTokenLPInfo.amount;
@@ -388,6 +495,14 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal(finalUserTokenBBalance, expectedUserTokenBBalance, "New user token B account balance is wrong.");
     assert.equal(finalPoolTokenABalance, expectedPoolTokenABalance, "New pool token A account balance is wrong.");
     assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
+  });
+
+  it("Remove Liquidity function changes account balances of token A and B correctly", async () => {
+
+  });
+
+  it("Remove Liquidity function changes the LP token balance and supply correctly", async () => {
+
   });
 
 });
