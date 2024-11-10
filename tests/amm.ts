@@ -32,6 +32,12 @@ describe("Liquidity Pool Functionality", () => {
   const tokenAMintAmount = 10;
   const tokenBMintAmount = 10;
 
+  // A second user that will be used in the remove liquidity tests
+  let otherUser: anchor.web3.Keypair;
+  let otherUserTokenAAccount: Account;
+  let otherUserTokenBAccount: Account;
+  let otherUserTokenLPAccount: Account;
+
   before(async () => {
     // Set up anchor to connect to the local cluster.
     const provider = anchor.AnchorProvider.env();
@@ -43,14 +49,24 @@ describe("Liquidity Pool Functionality", () => {
     ammId = program.programId;
 
     // Create a payer and give them sol
+    // Most of the tests will just use payer.
+    // The remove liquidity functions will involve a second user "otherUser" to create a more realistic testing environment.
+    // So otherUser and their token accounts will get initialized and funded here as well.
     payer = Keypair.generate();
+    otherUser = Keypair.generate();
     const amountofSol = 100;
-    const airdropSig = await connection.requestAirdrop(payer.publicKey, amountofSol * LAMPORTS_PER_SOL);
+    const airdropSigPayer = await connection.requestAirdrop(payer.publicKey, amountofSol * LAMPORTS_PER_SOL);
+    const airdropSigOtherUser = await connection.requestAirdrop(otherUser.publicKey, amountofSol * LAMPORTS_PER_SOL);
     const latestBlockHash = await connection.getLatestBlockhash();
     await connection.confirmTransaction({
       blockhash: latestBlockHash.blockhash,
       lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-      signature: airdropSig,
+      signature: airdropSigPayer,
+    });
+    await connection.confirmTransaction({
+      blockhash: latestBlockHash.blockhash,
+      lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+      signature: airdropSigOtherUser,
     });
 
     // Create example SPL tokens A and B
@@ -64,7 +80,7 @@ describe("Liquidity Pool Functionality", () => {
     tokenAMintPda = await createMint(connection, payer, mintAuthorityA.publicKey, freezeAutorityA.publicKey, decimals, tokenAKeypair);
     tokenBMintPda = await createMint(connection, payer, mintAuthorityB.publicKey, freezeAutorityB.publicKey, decimals, tokenBKeypair);
 
-    // Create the payer's token accounts for tokens A and B
+    // Create the payer's and otherUser's token accounts for tokens A and B
     userTokenAAccount = await getOrCreateAssociatedTokenAccount(
       connection,
       payer,
@@ -77,8 +93,20 @@ describe("Liquidity Pool Functionality", () => {
       tokenBMintPda,
       payer.publicKey
     );
+    otherUserTokenAAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      otherUser,
+      tokenAMintPda,
+      otherUser.publicKey
+    );
+    otherUserTokenBAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      otherUser,
+      tokenBMintPda,
+      otherUser.publicKey
+    );
 
-    // Fund the payer's token accounts
+    // Fund the token accounts
     await mintTo(
       connection,
       payer,
@@ -92,6 +120,22 @@ describe("Liquidity Pool Functionality", () => {
       payer,
       tokenBMintPda,
       userTokenBAccount.address,
+      mintAuthorityB,
+      tokenBMintAmount * 10 ** decimals
+    );
+    await mintTo(
+      connection,
+      otherUser,
+      tokenAMintPda,
+      otherUserTokenAAccount.address,
+      mintAuthorityA,
+      tokenAMintAmount * 10 ** decimals
+    );
+    await mintTo(
+      connection,
+      otherUser,
+      tokenBMintPda,
+      otherUserTokenBAccount.address,
       mintAuthorityB,
       tokenBMintAmount * 10 ** decimals
     );
@@ -305,10 +349,33 @@ describe("Liquidity Pool Functionality", () => {
   });
 
   it("Remove Liquidity function reverts if the submitted lp token account has no lp tokens", async () => {
+    // Transaction accounts
+    const accounts = {
+      pool: poolPda,
+      tokenAReserves: tokenAReservePda,
+      tokenBReserves: tokenBReservePda,
+      tokenLpMint: LPMintPda,
+      user: payer.publicKey,
+      userTokenLp: userTokenLPAccount.address, // This account has no LP tokens yet so it should trigger an error
+      userTokenA: userTokenAAccount.address,
+      userTokenB: userTokenBAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
 
+    // User tries to remove liquidity from the pool
+    try {
+      const tx = await program.methods.removeLiquidity()
+        .accounts(accounts)
+        .signers([payer])
+        .rpc();
+      chai.assert(false, "should've failed but didn't")
+    } catch (error) {
+      assert.equal(error.error.errorCode.code, "NoLiquidityPoolTokens");
+    }
   });
 
-  it("Add liguidity function changes account balances of tokens A and B correctly", async () => {
+  it("Add liquidity function changes account balances of tokens A and B correctly", async () => {
     // Get the initial balances of the user token accounts and the liquidity pool token accounts
     const initialUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
     const initialUserTokenABalance = initialUserTokenAInfo.amount;
@@ -497,12 +564,124 @@ describe("Liquidity Pool Functionality", () => {
     assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
   });
 
-  it("Remove Liquidity function changes account balances of token A and B correctly", async () => {
+  describe("Remove liquidity test", () => {
+    // To make this test more effective I am introducing a second user. Without the second user, when the first user removes their 
+    // liquidity they would just get all the pool's A and B tokens back. Testing with multiple users tests a more realistic scenario.
+    before(async () => {
+      // Create the otherUser's LP token account
+      otherUserTokenLPAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        otherUser,
+        LPMintPda,
+        otherUser.publicKey
+      );
 
+      // Transaction accounts
+      const accounts = {
+        pool: poolPda,
+        tokenLpMint: LPMintPda,
+        tokenAMint: tokenAMintPda,
+        tokenBMint: tokenBMintPda,
+        tokenAReserves: tokenAReservePda,
+        tokenBReserves: tokenBReservePda,
+        user: otherUser.publicKey,
+        userTokenA: otherUserTokenAAccount.address,
+        userTokenB: otherUserTokenBAccount.address,
+        userTokenLp: otherUserTokenLPAccount.address,
+        token_program: TOKEN_PROGRAM_ID,
+        system_program: SystemProgram.programId,
+      };
+
+      // User adds liquidity to the pool
+      // After the swap test the current ratio is A:4_000_000_000 to B:2_250_000_000 or 400:225 so these amounts work
+      const amountA = BigInt(800 * 10 ** 7);
+      const amountB = BigInt(450 * 10 ** 7);
+      try {
+        const tx = await program.methods.addLiquidity(new anchor.BN(amountA.toString()), new anchor.BN(amountB.toString()))
+          .accounts(accounts)
+          .signers([otherUser])
+          .rpc()
+      } catch (error) {
+        console.error("failed to add liquidity:", error)
+      }
+    });
+
+    it("Remove Liquidity function changes all token account balances correctly correctly", async () => {
+      // The remove liquidiy function removes all the user's liquidity, so to simplify things I am checking all token balances in this test.
+      // Get the initial balances of the user token accounts and the liquidity pool token accounts
+      const initialUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
+      const initialUserTokenABalance = initialUserTokenAInfo.amount;
+      const initialUserTokenBInfo = await getAccount(connection, userTokenBAccount.address);
+      const initialUserTokenBBalance = initialUserTokenBInfo.amount;
+
+      const initialPoolTokenAInfo = await getAccount(connection, tokenAReservePda);
+      const initialPoolTokenABalance = initialPoolTokenAInfo.amount;
+      const initialPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
+      const initialPoolTokenBBalance = initialPoolTokenBInfo.amount;
+
+      const initialUserTokenLPInfo = await getAccount(connection, userTokenLPAccount.address);
+      const initialUserLPBalance = initialUserTokenLPInfo.amount;
+      const initialLPMintInfo = await getMint(connection, LPMintPda);
+      const initialLPMintSupply = initialLPMintInfo.supply;
+
+      // Calculate the expected final token account balances
+      const amountAOut = (initialPoolTokenABalance * initialUserLPBalance) / initialLPMintSupply;
+      const amountBOut = (initialPoolTokenBBalance * initialUserLPBalance) / initialLPMintSupply;
+
+      const expectedUserTokenABalance = initialUserTokenABalance + amountAOut;
+      const expectedUserTokenBBalance = initialUserTokenBBalance + amountBOut;
+      const expectedPoolTokenABalance = initialPoolTokenABalance - amountAOut;
+      const expectedPoolTokenBBalance = initialPoolTokenBBalance - amountBOut;
+      const expectedUserLPBalance = BigInt(0);
+      const expectedLPMintSupply = initialLPMintSupply - initialUserLPBalance;
+
+      // Transaction accounts
+      const accounts = {
+        pool: poolPda,
+        tokenAReserves: tokenAReservePda,
+        tokenBReserves: tokenBReservePda,
+        tokenLpMint: LPMintPda,
+        user: payer.publicKey,
+        userTokenLp: userTokenLPAccount.address,
+        userTokenA: userTokenAAccount.address,
+        userTokenB: userTokenBAccount.address,
+        token_program: TOKEN_PROGRAM_ID,
+        system_program: SystemProgram.programId,
+      };
+
+      // User removes liquidity from the pool
+      try {
+        const tx = await program.methods.removeLiquidity()
+          .accounts(accounts)
+          .signers([payer])
+          .rpc()
+      } catch (error) {
+        console.error("failed to add liquidity:", error)
+      }
+
+      // Get the final balances of the user token accounts and the liquidity pool token accounts
+      const finalUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);
+      const finalUserTokenABalance = finalUserTokenAInfo.amount;
+      const finalUserTokenBInfo = await getAccount(connection, userTokenBAccount.address);
+      const finalUserTokenBBalance = finalUserTokenBInfo.amount;
+
+      const finalPoolTokenAInfo = await getAccount(connection, tokenAReservePda);
+      const finalPoolTokenABalance = finalPoolTokenAInfo.amount;
+      const finalPoolTokenBInfo = await getAccount(connection, tokenBReservePda);
+      const finalPoolTokenBBalance = finalPoolTokenBInfo.amount;
+
+      const finalUserTokenLPInfo = await getAccount(connection, userTokenLPAccount.address);
+      const finalUserLPBalance = finalUserTokenLPInfo.amount;
+      const finalLPMintInfo = await getMint(connection, LPMintPda);
+      const finalLPMintSupply = finalLPMintInfo.supply;
+
+      // Make sure all the new balances are correct
+      assert.equal(finalUserTokenABalance, expectedUserTokenABalance, "New user token A account balance is wrong.");
+      assert.equal(finalUserTokenBBalance, expectedUserTokenBBalance, "New user token B account balance is wrong.");
+      assert.equal(finalPoolTokenABalance, expectedPoolTokenABalance, "New pool token A account balance is wrong.");
+      assert.equal(finalPoolTokenBBalance, expectedPoolTokenBBalance, "New pool token B account balance is wrong.");
+      assert.equal(finalUserLPBalance, expectedUserLPBalance, "New user token LP balance is wrong.");
+      assert.equal(finalLPMintSupply, expectedLPMintSupply, "New LP Mint supply is wrong.");
+    });
   });
-
-  it("Remove Liquidity function changes the LP token balance and supply correctly", async () => {
-
-  });
-
 });

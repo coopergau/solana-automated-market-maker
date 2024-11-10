@@ -19,6 +19,8 @@ pub enum Errors {
 pub mod amm {
     use super::*;
 
+    const NINE_DECIMALS: u64 = 1000000000;
+
     pub fn initialize_pool(ctx: Context<InitializePool>) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
         pool.token_a_mint = ctx.accounts.token_a_mint.key();
@@ -45,14 +47,26 @@ pub mod amm {
         let pool = &ctx.accounts.pool;
 
         // Make sure the pool reserve accounts and submitted reserve accounts match
-        require_eq!(pool_a.to_account_info().key(), pool.token_a_reserves, Errors::IncorrectPoolTokenAccount);
-        require_eq!(pool_b.to_account_info().key(), pool.token_b_reserves, Errors::IncorrectPoolTokenAccount);
+        require_eq!(
+            pool_a.to_account_info().key(),
+            pool.token_a_reserves,
+            Errors::IncorrectPoolTokenAccount
+        );
+        require_eq!(
+            pool_b.to_account_info().key(),
+            pool.token_b_reserves,
+            Errors::IncorrectPoolTokenAccount
+        );
 
         // Make sure the ratio of new liquidity is correct
         if pool_b.amount == 0 {
             require_eq!(amount_a, amount_b, Errors::IncorrectLiquidityRatio);
         } else {
-            require_eq!(amount_a/amount_b, pool_a.amount/pool_b.amount, Errors::IncorrectLiquidityRatio);
+            require_eq!(
+                amount_a / amount_b,
+                pool_a.amount / pool_b.amount,
+                Errors::IncorrectLiquidityRatio
+            );
         }
 
         let transfer_a_cpi_accounts = Transfer {
@@ -88,7 +102,7 @@ pub mod amm {
         let user_lp_token_amount;
 
         if total_pool_tokens == 0 {
-            user_lp_token_amount = 1;
+            user_lp_token_amount = 1 * NINE_DECIMALS;
         } else {
             let user_deposit_proportion = (amount_a + amount_b) / total_pool_tokens;
             user_lp_token_amount = user_deposit_proportion * total_lp_tokens;
@@ -146,11 +160,23 @@ pub mod amm {
         require!(burn_amount > 0, Errors::NoLiquidityPoolTokens);
 
         // Make sure the pool reserve accounts and submitted reserve accounts match
-        require_eq!(pool_token_a.to_account_info().key(), pool.token_a_reserves, Errors::IncorrectPoolTokenAccount);
-        require_eq!(pool_token_b.to_account_info().key(), pool.token_b_reserves, Errors::IncorrectPoolTokenAccount);
+        require_eq!(
+            pool_token_a.to_account_info().key(),
+            pool.token_a_reserves,
+            Errors::IncorrectPoolTokenAccount
+        );
+        require_eq!(
+            pool_token_b.to_account_info().key(),
+            pool.token_b_reserves,
+            Errors::IncorrectPoolTokenAccount
+        );
 
         // Make sure the pool lp token account and the submitted lp token account match
-        require_eq!(mint_lp.to_account_info().key(), pool.token_lp_mint, Errors::IncorrectLPTokenAccount);
+        require_eq!(
+            mint_lp.to_account_info().key(),
+            pool.token_lp_mint,
+            Errors::IncorrectLPTokenAccount
+        );
 
         // Burn the users LP tokens
         let burn_cpi_accounts = Burn {
@@ -164,18 +190,19 @@ pub mod amm {
             burn_amount,
         )?;
 
-        // Transfer the user their share of the pool's reserve tokens
+        // Get accounts for transferring the pool's reserve tokens
         let user_token_a = &ctx.accounts.user_token_a;
         let user_token_b = &ctx.accounts.user_token_b;
         let token_a_mint_key = pool.token_a_mint;
         let token_b_mint_key = pool.token_b_mint;
 
         let total_lp_tokens = mint_lp.supply;
-        let user_lp_proportion = burn_amount / total_lp_tokens;
-        let user_token_a_owed = pool_token_a.amount * user_lp_proportion;
-        let user_token_b_owed = pool_token_b.amount * user_lp_proportion;
+        // This is basically the propotion of the liquidity pool the user owns times the reserves of A and B.
+        // It has to be done in this order or else the user proportion gets rounded to zero.
+        let user_token_a_owed = (pool_token_a.amount * burn_amount) / total_lp_tokens;
+        let user_token_b_owed = (pool_token_b.amount * burn_amount) / total_lp_tokens;
 
-        // Get pool account info for signing the transfer transaction
+        // Get pool account info for signing the transfer transactions
         let (_, pool_bump) = Pubkey::find_program_address(
             &[
                 b"pool",
@@ -387,14 +414,18 @@ pub struct AddLiquidity<'info> {
 #[derive(Accounts)]
 pub struct RemoveLiquidity<'info> {
     pub pool: Account<'info, Pool>,
+    #[account(mut)]
     pub token_a_reserves: Account<'info, TokenAccount>,
+    #[account(mut)]
     pub token_b_reserves: Account<'info, TokenAccount>,
     #[account(mut)]
     pub token_lp_mint: Account<'info, Mint>,
     pub user: Signer<'info>,
     #[account(mut)]
     pub user_token_lp: Account<'info, TokenAccount>,
+    #[account(mut)]
     pub user_token_a: Account<'info, TokenAccount>,
+    #[account(mut)]
     pub user_token_b: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
