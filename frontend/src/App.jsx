@@ -14,8 +14,34 @@ function App() {
   const createPoolClick = () => { navigate('/createPool') };
   const homeClick = () => { navigate('/') };
 
+  // Wallet connection function
+  const [walletAddress, setWalletAddress] = useState(null);
+  const connectWallet = async () => {
+    if (window.solana && window.solana.isPhantom) {
+      try {
+        // Request wallet connection
+        const response = await window.solana.connect();
+        setWalletAddress(response.publicKey.toString());
+        console.log("Connected with Public Key:", response.publicKey.toString());
+      } catch (err) {
+        console.error("Wallet connection error:", err);
+      }
+    } else {
+      alert("Phantom wallet not found! Please install.");
+    }
+  };
+
   return (
     <div className='App'>
+      {/* Connect Wallet Button */}
+      <div className="wallet-button-container">
+        {walletAddress ? (
+          <p>Phantom Wallet Connected: {walletAddress}</p>
+        ) : (
+          <button onClick={connectWallet} className="button">Connect Phantom Wallet</button>
+        )}
+      </div>
+
       {location.pathname === '/' && (
         // Only show this part if we're on the homepage ("/")
         <header className='Title'>
