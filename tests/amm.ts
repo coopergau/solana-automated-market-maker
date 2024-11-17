@@ -375,6 +375,32 @@ describe("Liquidity Pool Functionality", () => {
     }
   });
 
+  it("Swap function reverts if there is no liquidity in the pool", async () => {
+    // Account setup for swapping token A for token B
+    const swap_accounts = {
+      pool: poolPda,
+      tokenInReserves: tokenAReservePda,
+      tokenOutReserves: tokenBReservePda,
+      user: payer.publicKey,
+      userTokenIn: userTokenAAccount.address,
+      userTokenOut: userTokenBAccount.address,
+      token_program: TOKEN_PROGRAM_ID,
+      system_program: SystemProgram.programId,
+    };
+
+    // User tries to swap the tokens
+    const swapInAmount = BigInt(1 * 10 ** 9);
+    try {
+      const tx = await program.methods.swap(new anchor.BN(swapInAmount.toString()))
+        .accounts(swap_accounts)
+        .signers([payer])
+        .rpc()
+      chai.assert(false, "should've failed but didn't")
+    } catch (error) {
+      assert.equal(error.error.errorCode.code, "NoLiquidityInPool");
+    }
+  });
+
   it("Add liquidity function changes account balances of tokens A and B correctly", async () => {
     // Get the initial balances of the user token accounts and the liquidity pool token accounts
     const initialUserTokenAInfo = await getAccount(connection, userTokenAAccount.address);

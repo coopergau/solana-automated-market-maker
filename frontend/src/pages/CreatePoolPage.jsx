@@ -2,17 +2,39 @@ import React, { useState } from "react";
 import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Program, AnchorProvider } from "@coral-xyz/anchor";
-import idl from "/root/solana/amm/target/idl/amm.json";
+import { useWallet } from '@solana/wallet-adapter-react';
+import idl from "../program_idl/amm.json";
 
 const CreatePoolPage = () => {
     const [tokenAMint, setTokenAMint] = useState("");
     const [tokenBMint, setTokenBMint] = useState("");
     const [loading, setLoading] = useState(false);
+    const [walletConnected, setConnected] = useState(false);
+    const [wallet, setWallet] = useState(null);
 
-    const wallet = window.solana;
+    const connectWallet = async () => {
+        try {
+            // Check if Phantom is installed
+            const { solana } = window;
+
+            if (!solana?.isPhantom) {
+                alert('Please install Phantom wallet!');
+                return;
+            }
+
+            // Connect to wallet
+            const response = await solana.connect();
+            console.log('Connected with Public Key:', response.publicKey.toString());
+            setConnected(true);
+
+        } catch (error) {
+            console.error(error);
+            alert('Error connecting to wallet');
+        }
+    };
 
     const initializePool = async () => {
-        if (!wallet) {
+        if (!walletConnected) {
             alert("Please connect your wallet");
             return;
         }
@@ -21,7 +43,7 @@ const CreatePoolPage = () => {
             setLoading(true);
             // Set up connection to Solana network
             const connection = new Connection("https://api.devnet.solana.com", "confirmed"); // make address a global var
-            const programId = new PublicKey("4aYmUZwssmfkaN6igxi4Sgy3toi3D1dNGwJdwtGCWcjk");
+            const programId = new PublicKey("6z3BNmWeBSkEmhFCXNHS2bGAWmhPxbB3Mw1DdXTNfgSK"); // make address a global var
 
             const provider = new AnchorProvider(
                 connection,
@@ -33,6 +55,7 @@ const CreatePoolPage = () => {
                 idl, // Program idl
                 programId,
             );
+
             // Get accounts for accounts struct
             const tokenAMintAddress = new PublicKey(tokenAMint);
             const tokenBMintAddress = new PublicKey(tokenBMint);
@@ -56,9 +79,7 @@ const CreatePoolPage = () => {
                 programId
             );
 
-            const payer = new PublicKey(wallet.publicKey);
-            const payerBalance = await connection.getBalance(payer);
-            console.log(payerBalance);
+            const payer = new PublicKey(window.solana.publicKey);
             const tx = await program.methods
                 .initializePool()
                 .accounts({
@@ -77,8 +98,6 @@ const CreatePoolPage = () => {
             tx.recentBlockhash = blockhash;
             tx.lastValidBlockHeight = lastValidBlockHeight;
             tx.feePayer = provider.wallet.publicKey;
-            console.log(tx.recentBlockhash);
-            console.log(tx.lastValidBlockHeight);
 
             console.log("Sending transaction...");
 
@@ -94,7 +113,7 @@ const CreatePoolPage = () => {
                 signature: signature.signature,
             });
             console.log("Transaction confirmed!");
-
+            alert(`Transaction confirmed, pool address is: ${poolAddress}`);
         } catch (error) {
             console.error("Error initializing pool:", error);
             alert(`Failed to initialize pool: ${error.message}`);
@@ -106,6 +125,9 @@ const CreatePoolPage = () => {
     return (
         <div>
             <h1>Create Liquidity Pool</h1>
+            <button onClick={connectWallet}>
+                {walletConnected ? 'Connected' : 'Connect to Phantom'}
+            </button>
             <div>
                 <label>Token A Mint Address:</label>
                 <input

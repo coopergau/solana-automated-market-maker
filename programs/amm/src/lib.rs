@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
 
-declare_id!("4aYmUZwssmfkaN6igxi4Sgy3toi3D1dNGwJdwtGCWcjk");
+declare_id!("6z3BNmWeBSkEmhFCXNHS2bGAWmhPxbB3Mw1DdXTNfgSK");
 
 #[error_code]
 pub enum Errors {
@@ -13,6 +13,8 @@ pub enum Errors {
     IncorrectPoolTokenAccount,
     #[msg("Submitted liquidity pool account and submitted pool account don't match.")]
     IncorrectLPTokenAccount,
+    #[msg("Pool currently has no liquidity for swapping.")]
+    NoLiquidityInPool,
 }
 
 #[program]
@@ -254,15 +256,20 @@ pub mod amm {
     }
 
     pub fn swap(ctx: Context<Swap>, amount_in: u64) -> Result<()> {
-        // Calculate the amount of tokens the user gets from the swap
         // 0.3% fee represented using u64s
         const FEE_NUMERATOR: u64 = 3;
         const FEE_DENOMINATOR: u64 = 1000;
+        
+        // Get pool reserves info
         let pool_reserves_in = &ctx.accounts.token_in_reserves;
         let pool_reserves_out = &ctx.accounts.token_out_reserves;
-
         let token_in_balance = pool_reserves_in.amount;
         let token_out_balance = pool_reserves_out.amount;
+        
+        // Make sure the pool actually has liquidity
+        require!(token_in_balance * token_out_balance > 0, Errors::NoLiquidityInPool);
+
+        // Calculate the amount of tokens the user gets from the swap
         let token_product = token_in_balance * token_out_balance;
         let effective_amount_in = amount_in * (1 - (FEE_NUMERATOR / FEE_DENOMINATOR));
 

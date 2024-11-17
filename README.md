@@ -21,3 +21,5 @@ natspec like info
 Things to test
  - The add add liquidity mints the right amount of LP tokens if the ratio is different - right now we just test the first liq providor so the amount is always 1 - so this could be an integration test, like liquidity is provided, swaps happen, then test the add liquidity function still works after that
    // use this in front end for getting addresses for the add liq function const poolAccount = await program.account.pool.fetch(poolPublicKey);
+
+use signTransaction, serialize it, and sendRawtransaction to get more descriptive errors if signAndSendTransaction isnt working
