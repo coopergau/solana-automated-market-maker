@@ -6,6 +6,8 @@ Users can swap tokens using liquidity pools. The swap prices are determined by t
 
 # To do
 
+front end stuff sucks make tests for deployed version on devnet - also verify contract or something like that
+
 secuirity checks in functions to make sure like the pool account and mint accounts and reserves and all that correspond to each other
 remove liquidity function
 swap function
